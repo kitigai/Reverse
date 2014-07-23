@@ -8,6 +8,8 @@ class debugger():
         self.h_process      =   None
         self.pid            =   None
         self.debugger_active   =   False
+        self.h_thread       =   None
+        self.context        =   None
 
     def load(self,path_to_exe):
         
@@ -66,6 +68,50 @@ class debugger():
         while self.debugger_active == True:
             self.get_debug_event()
 
+    def open_thread(self, thread_id):
+
+        h_thread = kernel32.OpenThread(THREAD_ALL_ACCESS,None,thread_id)
+
+        if h_thread is not 0:
+            return h_thread
+
+        else:
+            print "[*] Could not obtain a valid thread handle."
+            return False
+
+    def enumerate_threads(self):
+
+        thread_entry = THREADENTRY32()
+        thread_list = []
+        snapshot = kernel32.CreateToolhelp32Snapsoht(TH32CS_SNAPTHREAD,self.pid)
+
+        if snapshot is not None:
+            #setting size of structure
+            thread_entry.dwSize = sizeof (thread_entry)
+            success = kernel32.Thread32First(snapshot, byref(thread_entry))
+
+            while success:
+                if thread_entry.th32OwnerProcessID == self.pid:
+                    thread_list.append(thread_entry.th32ThreadID)
+
+                success = kernel32.Thread32Next(snapshot,byref(thread_entry))
+
+            kernel32.CloseHandle(snapshot)
+            return thread_list
+        else:
+            return False
+
+    def get_thread_context ( self, thread_id = None, h_thread=None):
+
+        context = CONTEXT()
+        context.ContextFlags = CONTEXT_FULL | CONTEXT_DEBUG_REGISTERS
+
+        if kernel32.GetThreadContext(h_thread,byref(context)):
+            kernel32.CloseHandle(h_thread)
+            return context
+        else:
+            return False
+
     def get_debug_event(self):
 
         debug_event     =   DEBUG_EVENT()
@@ -73,8 +119,15 @@ class debugger():
 
         if kernel32.WaitForDebugEvent(byref(debug_event),INFINITE):
 
-            raw_input("Press a key to continue ....")
-            self.debugger_active = False
+            #raw_input("Press a key to continue ....")
+            #self.debugger_active = False
+
+            #get thread list and information of context
+            self.h_thread = self.open_thread(debug_event.dwThreadId)
+            self.context = self.get_thread_context(h_thread=self.h_thread)
+
+            print "Event Code:  %d Thread ID:   %d" %   (debug_event.dwDebugEventCode, debug_event.dwThreadId)
+           
             kernel32.ContinueDebugEvent(
                     debug_event.dwProcessId,
                     debug_event.dwThreadId,
@@ -85,3 +138,4 @@ class debugger():
         if kernel32.DebugActiveProcessStop(self.pid):
             print "[*] Finished debugging. Exiting..."
             return False
+
